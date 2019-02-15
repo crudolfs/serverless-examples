@@ -1,0 +1,380 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: myservice-codepipeline
+
+# Parameters
+############
+Parameters:
+  ProjectName:
+    Type: String
+    Default: sls-helloworld-service
+    Description: Define project
+  PipelineName:
+    Default: sls-helloworld-service-pipeline
+    Description: Name for the codepipeline
+    Type: String
+  PipelineS3BucketName:
+    Default: sls-helloworld-codepipeline
+    Description: The name of the S3 bucket that contains the source artifact, which must be in the same region as this stack
+    Type: String
+  ServerlessServiceName:
+    Default: sls-helloworld
+    Description: The name of the serverless service as specified in the serverless.yml
+    Type: String
+  CodeCommitRepositoryName:
+    Default: sls-helloworld
+    Description: Name of the CodeCommit repository
+    Type: String
+
+# Resources
+###########
+Resources:
+
+  # S3 bucket where build artifacts go
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      AccessControl: Private
+      BucketName:
+        Ref: PipelineS3BucketName
+
+# CodeCommit
+#  CodeCommitRepository:
+#    Type: AWS::CodeCommit::Repository
+#    DeletionPolicy: Retain
+#    Properties:
+#      RepositoryName: !Ref CodeCommitRepositoryName
+
+  # CodeBuild
+  ###########
+  # IAM Roles and Policies.
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - codebuild.amazonaws.com
+  CodeBuildServicePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CodeBuildServicePolicy
+      Roles:
+        - !Ref CodeBuildServiceRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "arn:aws:logs:*:*:*"
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+            Resource:
+              - !Sub "arn:aws:s3:::codepipeline-${AWS::Region}-*/*"
+              - !Sub "arn:aws:s3:::${ArtifactsBucket}/*"
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ProjectName
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        # ComputeType options: BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE
+        ComputeType: BUILD_GENERAL1_SMALL
+        # Run `aws codebuild list-curated-environment-images` for a complete list of images provided.
+        Image: aws/codebuild/nodejs:8.11.0
+        EnvironmentVariables:
+          - Name: BUILD_ARTIFACT_BUCKET
+            Value:
+              Ref: ArtifactsBucket
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yml
+      TimeoutInMinutes: 10
+
+  CodeBuildProjectDeployTst:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ProjectName}-tst"
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        # ComputeType options: BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE
+        ComputeType: BUILD_GENERAL1_SMALL
+        # Run `aws codebuild list-curated-environment-images` for a complete list of images provided.
+        Image: aws/codebuild/nodejs:8.11.0
+        EnvironmentVariables:
+          - Name: BUILD_ARTIFACT_BUCKET
+            Value:
+              Ref: ArtifactsBucket
+          - Name: env
+            Value: tst
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec-deploy.yml
+      TimeoutInMinutes: 10
+
+  CodeBuildProjectDeployStg:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ProjectName}-stg"
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        # ComputeType options: BUILD_GENERAL1_SMALL, BUILD_GENERAL1_MEDIUM, BUILD_GENERAL1_LARGE
+        ComputeType: BUILD_GENERAL1_SMALL
+        # Run `aws codebuild list-curated-environment-images` for a complete list of images provided.
+        Image: aws/codebuild/nodejs:8.11.0
+        EnvironmentVariables:
+          - Name: BUILD_ARTIFACT_BUCKET
+            Value:
+              Ref: ArtifactsBucket
+          - Name: env
+            Value: stg
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec-deploy.yml
+      TimeoutInMinutes: 10
+
+  ServerlessFrameworkPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ServerlessFrameworkPolicy
+      Roles:
+        - !Ref CodeBuildServiceRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - cloudformation:Describe*
+              - cloudformation:List*
+              - cloudformation:Get*
+              - cloudformation:CreateStack
+              - cloudformation:UpdateStack
+              - cloudformation:DeleteStack
+            Resource: !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${ServerlessServiceName}*/*"
+          - Effect: Allow
+            Action:
+              - cloudformation:ValidateTemplate
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - s3:CreateBucket
+              - s3:DeleteBucket
+              - s3:Get*
+              - s3:List*
+            Resource: "arn:aws:s3:::*"
+          - Effect: Allow
+            Action:
+              - s3:*
+            Resource: "arn:aws:s3:::*/*"
+          - Effect: Allow
+            Action:
+              - logs:DescribeLogGroups
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*"
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:DeleteLogGroup
+              - logs:DeleteLogStream
+              - logs:DescribeLogStreams
+              - logs:FilterLogEvents
+            Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${ServerlessServiceName}*:log-stream:*"
+          - Effect: Allow
+            Action:
+              - iam:GetRole
+              - iam:PassRole
+              - iam:CreateRole
+              - iam:DeleteRole
+              - iam:DetachRolePolicy
+              - iam:PutRolePolicy
+              - iam:AttachRolePolicy
+              - iam:DeleteRolePolicy
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:role/${ServerlessServiceName}*-lambdaRole"
+          # TODO: restrict API Gateway actions and resource
+          - Effect: Allow
+            Action:
+              - apigateway:*
+            Resource: "*"
+          - Effect: Allow
+            Action:
+              - lambda:GetFunction
+              - lambda:CreateFunction
+              - lambda:DeleteFunction
+              - lambda:UpdateFunctionConfiguration
+              - lambda:UpdateFunctionCode
+              - lambda:ListVersionsByFunction
+              - lambda:PublishVersion
+              - lambda:CreateAlias
+              - lambda:DeleteAlias
+              - lambda:UpdateAlias
+              - lambda:GetFunctionConfiguration
+              - lambda:AddPermission
+              - lambda:RemovePermission
+              - lambda:InvokeFunction
+            Resource: !Sub "arn:aws:lambda:*:${AWS::AccountId}:function:${ServerlessServiceName}*"
+          - Effect: Allow
+            Action:
+              - events:Put*
+              - events:Remove*
+              - events:Delete*
+              - events:Describe*
+            Resource: !Sub "arn:aws:events::${AWS::AccountId}:rule/${ServerlessServiceName}*"
+          # Only required when Lambda needs VPC access
+          - Effect: Allow
+            Action:
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeSubnets
+              - ec2:DescribeVpcs
+            Resource: "*"
+
+  # CodePipeline
+  ##############
+  # IAM Roles and Policies.
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+  CodePipelineServicePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: CodePipelineServicePolicy
+      Roles:
+        - !Ref CodePipelineServiceRole
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: "arn:aws:logs:*:*:*"
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+            Resource: !Sub "arn:aws:s3:::${ArtifactsBucket}/*"
+          - Effect: Allow
+            Action:
+              - codecommit:GetBranch
+              - codecommit:GetCommit
+              - codecommit:UploadArchive
+              - codecommit:GetUploadArchiveStatus
+              - codecommit:CancelUploadArchive
+            Resource: !Sub "arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${CodeCommitRepositoryName}"
+          - Effect: Allow
+            Action:
+              - codebuild:BatchGetBuilds
+              - codebuild:StartBuild
+              - codebuild:StopBuild
+            Resource:
+              - !GetAtt CodeBuildProject.Arn
+              - !GetAtt CodeBuildProjectDeployTst.Arn
+              - !GetAtt CodeBuildProjectDeployStg.Arn
+
+  # CodePipeline definition.
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Location:
+          Ref: ArtifactsBucket
+        Type: S3
+      DisableInboundStageTransitions: []
+      Name:
+        Ref: PipelineName
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: FetchSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              Configuration:
+                RepositoryName: !Ref CodeCommitRepositoryName
+                BranchName: master
+                PollForSourceChanges: true
+              OutputArtifacts:
+                - Name: !Sub "${ProjectName}-source"
+              RunOrder: 1
+        - Name: Build
+          Actions:
+            - Name: Build
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: !Sub "${ProjectName}-source"
+              OutputArtifacts:
+                - Name: !Sub "${ProjectName}-build"
+              Configuration:
+                ProjectName:
+                  Ref: CodeBuildProject
+              RunOrder: 1
+        - Name: DeployTest
+          Actions:
+            - Name: DeployTst
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: !Sub "${ProjectName}-build"
+              OutputArtifacts:
+                - Name: !Sub "${ProjectName}-deploytst"
+              Configuration:
+                ProjectName:
+                  Ref: CodeBuildProjectDeployTst
+              RunOrder: 1
+        - Name: DeployStaging
+          Actions:
+            - Name: DeployStg
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              InputArtifacts:
+                - Name: !Sub "${ProjectName}-build"
+              OutputArtifacts:
+                - Name: !Sub "${ProjectName}-deploystg"
+              Configuration:
+                ProjectName:
+                  Ref: CodeBuildProjectDeployStg
+              RunOrder: 1

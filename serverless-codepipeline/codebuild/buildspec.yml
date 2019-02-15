@@ -1,0 +1,37 @@
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - echo install started [`date`]
+#      - aws --version
+#      - echo Upgrade AWS CLI
+#      - pip install --upgrade awscli
+      - apt-get update -y
+      - apt-get install apt-transport-https
+      - npm install
+      - npm install -g serverless
+  pre_build:
+    commands:
+      - echo pre_build started [`date`]
+  build:
+    commands:
+      - echo build started
+      # create directory for deployment packages
+      - mkdir serverless
+      # create staging deployment package
+      - mkdir serverless/stg
+      - serverless package --package serverless/stg --stage stg -v
+      # create prod deployment package
+      - mkdir serverless/prod
+      - serverless package --package serverless/prod --stage prod -v
+  post_build:
+    commands:
+      - echo post_build started [`date`]
+artifacts:
+  files:
+    - serverless/**/*
+    - serverless.yml
+    - buildspec-stg.yml
+    - deploy.sh
+
