@@ -20,11 +20,11 @@ phases:
       # create directory for deployment packages
       - mkdir serverless
       # create staging deployment package
+      - mkdir serverless/tst
+      - serverless package --package serverless/tst --stage tst -v
+      # create prod deployment package
       - mkdir serverless/stg
       - serverless package --package serverless/stg --stage stg -v
-      # create prod deployment package
-      - mkdir serverless/prod
-      - serverless package --package serverless/prod --stage prod -v
   post_build:
     commands:
       - echo post_build started [`date`]
