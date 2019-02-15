@@ -32,6 +32,5 @@ artifacts:
   files:
     - serverless/**/*
     - serverless.yml
-    - buildspec-stg.yml
-    - deploy.sh
+    - buildspec-deploy.yml
 
