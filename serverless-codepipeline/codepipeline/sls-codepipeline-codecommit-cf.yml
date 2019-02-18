@@ -180,6 +180,12 @@ Resources:
             Action:
               - s3:CreateBucket
               - s3:DeleteBucket
+              # add PutBucketNotification when s3 event sources are used in serverless.yml
+              - s3:PutBucketNotification
+              # add PutBucketCORS when CorsConfiguration is added to the custom bucket configuration in serverless.yml
+              - s3:PutBucketCORS
+              # add PutPublicAccessBlock when PublicAccessBlockConfiguration is added to the custom bucket configuration in serverless.yml
+              - s3:PutPublicAccessBlock
               - s3:Get*
               - s3:List*
             Resource: "arn:aws:s3:::*"
